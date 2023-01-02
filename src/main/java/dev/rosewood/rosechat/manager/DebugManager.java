@@ -24,9 +24,12 @@ public class DebugManager extends Manager {
     }
 
     public void addMessage(String message) {
-        LocalDateTime now = LocalDateTime.now();
-        String prefix = "[" + now.getHour() + ":" + now.getMinute() + ":" + now.getSecond() + ":" + System.currentTimeMillis() + "]";
-        this.messages.add(prefix + " " + message + "\n");
+        // Make sure to add the debug messages synchronously.
+        Bukkit.getScheduler().runTask(this.rosePlugin, () -> {
+            LocalDateTime now = LocalDateTime.now();
+            String prefix = "[" + now.getHour() + ":" + now.getMinute() + ":" + now.getSecond() + ":" + System.currentTimeMillis() + "]";
+            this.messages.add(prefix + " " + message + "\n");
+        });
     }
 
     @Override

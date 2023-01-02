@@ -18,8 +18,13 @@ import org.bukkit.Bukkit;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
 /**
@@ -262,6 +267,8 @@ public class MessageWrapper {
         return lastFormat + lastColor;
     }
 
+    private final Map<UUID, List<QueuedMessage>> queue = new HashMap<>();
+
     public BaseComponent[] parse(String format, RoseSender viewer) {
         PreParseMessageEvent preParseMessageEvent = new PreParseMessageEvent(this, viewer);
         Bukkit.getPluginManager().callEvent(preParseMessageEvent);
@@ -271,40 +278,32 @@ public class MessageWrapper {
 
             ComponentBuilder componentBuilder = new ComponentBuilder();
 
-            if (format == null || !format.contains("{message}")) {
-                if (Setting.USE_MARKDOWN_FORMATTING.getBoolean()) {
-                    componentBuilder.append(new MessageTokenizer(this, receivingViewer, this.message, true, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                } else {
-                    componentBuilder.append(new MessageTokenizer(this, receivingViewer, this.message, true, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                }
-
-                return this.tokenized = componentBuilder.create();
-            }
-
             String[] formatSplit = format.split("\\{message\\}");
             String before = formatSplit[0];
             String after = formatSplit.length > 1 ? formatSplit[1] : null;
 
             if (before != null && !before.isEmpty()) {
-                componentBuilder.append(new MessageTokenizer(this, receivingViewer, before, true, Tokenizers.DEFAULT_BUNDLE).toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
+                new MessageTokenizer(this, receivingViewer, this.message,
+                        Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
+                        .queue(this.message, (message) -> {
+                            //this.queue.put(0, message);
+                        });
             }
 
             if (format.contains("{message}")) {
-                String formatColor = this.getChatColorFromFormat(format, receivingViewer);
-
-                if (Setting.USE_MARKDOWN_FORMATTING.getBoolean()) {
-                    componentBuilder.append(new MessageTokenizer(this, receivingViewer, formatColor + this.message, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                } else {
-                    componentBuilder.append(new MessageTokenizer(this, receivingViewer, formatColor + this.message, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                }
+                new MessageTokenizer(this, receivingViewer, this.message,
+                        Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
+                        .queue(this.message, (message) -> {
+                           // this.queue.put(1, message);
+                        });
             }
 
             if (after != null && !after.isEmpty()) {
-                componentBuilder.append(new MessageTokenizer(this, receivingViewer, after, true, Tokenizers.DEFAULT_BUNDLE).toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
+                new MessageTokenizer(this, receivingViewer, after,
+                        Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
+                        .queue(after, (message) -> {
+                           // this.queue.put(2, message);
+                        });
             }
 
             this.tokenized = componentBuilder.create();
@@ -323,47 +322,65 @@ public class MessageWrapper {
         return this.toComponents();
     }
 
-    public BaseComponent[] parseFromDiscord(String id, String format, RoseSender viewer) {
+    public void parseAsynchronously(String format, RoseSender viewer, Consumer<BaseComponent[]> callback) {
         PreParseMessageEvent preParseMessageEvent = new PreParseMessageEvent(this, viewer);
         Bukkit.getPluginManager().callEvent(preParseMessageEvent);
 
         if (!preParseMessageEvent.isCancelled()) {
             RoseSender receivingViewer = this.isPrivateMessage() ? this.getPrivateMessageInfo().getReceiver() : viewer;
 
-            ComponentBuilder componentBuilder = new ComponentBuilder();
-
-            if (format == null || !format.contains("{message}")) {
-                if (Setting.USE_MARKDOWN_FORMATTING.getBoolean()) {
-                    componentBuilder.append(new MessageTokenizer(this, receivingViewer, this.message, true, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.FROM_DISCORD_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                } else {
-                    componentBuilder.append(new MessageTokenizer(this, receivingViewer, this.message, true, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.FROM_DISCORD_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                }
-
-                return this.tokenized = componentBuilder.create();
-            }
-
             String[] formatSplit = format.split("\\{message\\}");
             String before = formatSplit[0];
             String after = formatSplit.length > 1 ? formatSplit[1] : null;
 
             if (before != null && !before.isEmpty()) {
-                componentBuilder.append(new MessageTokenizer(this, receivingViewer, before, true, Tokenizers.FROM_DISCORD_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                        .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
+                new MessageTokenizer(this, receivingViewer, before,
+                        Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
+                        .queue(before, (message) -> {
+                            List<QueuedMessage> messages = this.queue.getOrDefault(viewer.getUUID(), new ArrayList<>());
+                            messages.add(new QueuedMessage(message, 0));
+                            this.queue.put(viewer.getUUID(), messages);
+                            BaseComponent[] components = waitForComponents(formatSplit.length, viewer);
+                            if (components != null) callback.accept(this.tokenized);
+                        });
             }
 
             if (format.contains("{message}")) {
-                String formatColor = this.getChatColorFromFormat(format, receivingViewer);
-
-                componentBuilder.append(new MessageTokenizer(this, receivingViewer, formatColor + this.message, Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.FROM_DISCORD_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                        .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
+                new MessageTokenizer(this, receivingViewer, this.message,
+                        Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
+                        .queue(this.message, (message) -> {
+                            List<QueuedMessage> messages = this.queue.getOrDefault(viewer.getUUID(), new ArrayList<>());
+                            messages.add(new QueuedMessage(message, 1));
+                            this.queue.put(viewer.getUUID(), messages);
+                            BaseComponent[] components = waitForComponents(formatSplit.length, viewer);
+                            if (components != null) callback.accept(this.tokenized);
+                        });
             }
 
             if (after != null && !after.isEmpty()) {
-                componentBuilder.append(new MessageTokenizer(this, receivingViewer, after, true, Tokenizers.FROM_DISCORD_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
+                new MessageTokenizer(this, receivingViewer, after,
+                        Tokenizers.DISCORD_EMOJI_BUNDLE, Tokenizers.MARKDOWN_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_BUNDLE)
+                        .queue(after, (message) -> {
+                            List<QueuedMessage> messages = this.queue.getOrDefault(viewer.getUUID(), new ArrayList<>());
+                            messages.add(new QueuedMessage(message, 2));
+                            this.queue.put(viewer.getUUID(), messages);
+                            BaseComponent[] components = waitForComponents(formatSplit.length, viewer);
+                            if (components != null) callback.accept(this.tokenized);
+                        });
             }
+        }
+    }
+
+    private BaseComponent[] waitForComponents(int size, RoseSender viewer) {
+        System.out.println("Waiting for comps, size: " + (size + 1) + " Obtained: " + this.queue.size());
+        if (this.queue.get(viewer.getUUID()).size() == size + 1) {
+            System.out.println("Found all components needed");
+            ComponentBuilder componentBuilder = new ComponentBuilder();
+            this.queue.get(viewer.getUUID()).stream().sorted(Comparator.comparing(QueuedMessage::getId)).forEach(entry -> {
+                Bukkit.getConsoleSender().sendMessage("Message");
+                Bukkit.getConsoleSender().spigot().sendMessage(entry.getMessage());
+                componentBuilder.append(entry.getMessage(), ComponentBuilder.FormatRetention.FORMATTING);
+            });
 
             this.tokenized = componentBuilder.create();
 
@@ -372,60 +389,22 @@ public class MessageWrapper {
 
             if (viewer != null) {
                 PlayerData viewerData = RoseChatAPI.getInstance().getPlayerData(viewer.getUUID());
-                if (viewerData != null) this.logMessage(viewerData.getMessageLog(), id);
+                if (viewerData != null) this.logMessage(viewerData.getMessageLog(), null);
             }
 
-            return this.tokenized;
+            this.queue.remove(viewer.getUUID());
+            return tokenized;
         }
-        return this.toComponents();
+
+        return null;
+    }
+
+    public BaseComponent[] parseFromDiscord(String id, String format, RoseSender viewer) {
+        return null;
     }
 
     public BaseComponent[] parseToDiscord(String format, RoseSender viewer) {
-        PreParseMessageEvent preParseMessageEvent = new PreParseMessageEvent(this, viewer);
-        Bukkit.getPluginManager().callEvent(preParseMessageEvent);
-
-        if (!preParseMessageEvent.isCancelled()) {
-            ComponentBuilder componentBuilder = new ComponentBuilder();
-
-            if (format == null || !format.contains("{message}")) {
-                if (Setting.USE_MARKDOWN_FORMATTING.getBoolean()) {
-                    componentBuilder.append(new MessageTokenizer(this, viewer, this.message, true, Tokenizers.TO_DISCORD_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_DISCORD_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                } else {
-                    componentBuilder.append(new MessageTokenizer(this, viewer, this.message, true, Tokenizers.TO_DISCORD_BUNDLE, Tokenizers.DEFAULT_DISCORD_BUNDLE)
-                            .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-                }
-
-                return this.tokenized = componentBuilder.create();
-            }
-
-            String[] formatSplit = format.split("\\{message\\}");
-            String before = formatSplit.length > 0 ? formatSplit[0] : null;
-            String after = formatSplit.length > 1 ? formatSplit[1] : null;
-
-            if (before != null && !before.isEmpty()) {
-                componentBuilder.append(new MessageTokenizer(this, viewer, before, true, Tokenizers.TO_DISCORD_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_DISCORD_BUNDLE)
-                        .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-            }
-
-            if (format.contains("{message}")) {
-                componentBuilder.append(new MessageTokenizer(this, viewer, this.message, Tokenizers.TO_DISCORD_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_DISCORD_BUNDLE)
-                        .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-            }
-
-            if (after != null && !after.isEmpty()) {
-                componentBuilder.append(new MessageTokenizer(this, viewer, after, true, Tokenizers.TO_DISCORD_BUNDLE, Tokenizers.DISCORD_FORMATTING_BUNDLE, Tokenizers.DEFAULT_DISCORD_BUNDLE)
-                        .toComponents(), ComponentBuilder.FormatRetention.FORMATTING);
-            }
-
-            this.tokenized = componentBuilder.create();
-
-            PostParseMessageEvent postParseMessageEvent = new PostParseMessageEvent(this, viewer, true);
-            Bukkit.getPluginManager().callEvent(postParseMessageEvent);
-            return this.tokenized;
-        }
-
-        return this.toComponents();
+        return null;
     }
 
     public BaseComponent[] toComponents() {

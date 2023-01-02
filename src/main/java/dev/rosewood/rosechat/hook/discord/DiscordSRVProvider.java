@@ -50,8 +50,8 @@ public class DiscordSRVProvider implements DiscordChatProvider {
         PlaceholderCondition textPlaceholder = placeholder.getPlaceholder("text");
         String text = textPlaceholder != null ? textPlaceholder.parseToString(messageWrapper.getSender(), messageWrapper.getSender(), placeholders) : null;
         if (text != null && text.contains("{message}")) {
-            message = messageWrapper.parseToDiscord(text, messageWrapper.getSender());
-            text = MessageUtils.processForDiscord(TextComponent.toLegacyText(message));
+          //  message = messageWrapper.parseToDiscord(text, messageWrapper.getSender());
+           // text = MessageUtils.processForDiscord(TextComponent.toLegacyText(message));
         }
 
         PlaceholderCondition urlPlaceholder = placeholder.getPlaceholder("url");
@@ -107,9 +107,9 @@ public class DiscordSRVProvider implements DiscordChatProvider {
                 if (messageWrapper.getDeletableMessage() != null) messageWrapper.getDeletableMessage().setDiscordId(m.getId());
             });
         } else {
-            if (text != null) textChannel.sendMessage(this.emojiManager.formatUnicode(text)).queue((m) -> {
-                if (messageWrapper.getDeletableMessage() != null) messageWrapper.getDeletableMessage().setDiscordId(m.getId());
-            });
+           // if (text != null) textChannel.sendMessage(this.emojiManager.formatUnicode(text)).queue((m) -> {
+           //     if (messageWrapper.getDeletableMessage() != null) messageWrapper.getDeletableMessage().setDiscordId(m.getId());
+           // });
         }
     }
 

@@ -110,10 +110,13 @@ public class ChatChannel implements Group {
         PlayerData data = this.api.getPlayerData(receiver.getUniqueId());
         if (!this.canReceiveMessage(receiver, data, message.getSender().getUUID())) return;
         RoseSender roseSender = new RoseSender(receiver);
-        receiver.spigot().sendMessage(discordId == null ?
-                message.parse(format, roseSender) : message.parseFromDiscord(discordId, format, roseSender));
-
-        this.sendTagSound(message, receiver, data);
+        message.parseAsynchronously(format, roseSender, components -> {
+            //Bukkit.getConsoleSender().spigot().sendMessage(components);
+            Bukkit.getScheduler().runTask(RoseChat.getInstance(), () -> {
+                receiver.spigot().sendMessage(components);
+                this.sendTagSound(message, receiver, data);
+            });
+        });
     }
 
     private void sendGenericVisible(MessageWrapper message, String format, String discordId) {
@@ -235,7 +238,10 @@ public class ChatChannel implements Group {
         Player sender = message.getSender().isPlayer() ? message.getSender().asPlayer() : null;
         PlayerData senderData = sender != null ? api.getPlayerData(sender.getUniqueId()) : null;
         if (senderData != null) {
-            sender.spigot().sendMessage(discordId == null ? message.parse(format, message.getSender()) : message.parseFromDiscord(discordId, format, message.getSender()));
+            message.parseAsynchronously(format, message.getSender(), (messagea) -> {
+                sender.spigot().sendMessage(messagea);
+            });
+            //sender.spigot().sendMessage(discordId == null ? message.parse(format, message.getSender()) : message.parseFromDiscord(discordId, format, message.getSender()));
         }
 
         // Send the message to discord. Always happens.
