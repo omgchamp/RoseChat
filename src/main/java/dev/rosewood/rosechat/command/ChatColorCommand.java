@@ -16,7 +16,7 @@ import java.util.UUID;
 public class ChatColorCommand extends AbstractCommand {
 
     public ChatColorCommand() {
-        super(true, "color", "chatcolor");
+        super(true, "color");
     }
 
     @Override
